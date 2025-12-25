@@ -44,6 +44,11 @@ class CodexeroBot:
         self.wallet_address = None
         self.proxies = []
         self.use_proxy = False
+        # Daftar task yang akan diklaim
+        self.tasks = [
+            {"id": "daily-visit-app", "name": "Daily Visit App"},
+            {"id": "visit-codexero", "name": "Visit Codexero"}
+        ]
     
     def get_wib_time(self):
         wib = pytz.timezone('Asia/Jakarta')
@@ -255,7 +260,7 @@ class CodexeroBot:
             self.log(f"Error during login: {str(e)}", "ERROR")
             return False
     
-    def redeem_task(self, task_id="daily-visit-app", proxy=None):
+    def redeem_task(self, task_id, task_name, proxy=None):
         try:
             if not self.token:
                 self.log("Token not available", "ERROR")
@@ -269,7 +274,7 @@ class CodexeroBot:
                 "taskId": task_id
             }
             
-            self.log(f"Processing Task:", "INFO")
+            self.log(f"Processing Task: {task_name}", "INFO")
             
             self.random_delay()
             
@@ -284,36 +289,46 @@ class CodexeroBot:
             if response.status_code == 200:
                 try:
                     data = response.json()
-                    pts = data.get('points')
-                    if pts:
-                        time_str = self.get_wib_time()
-                        print(f"[{time_str}] {Fore.GREEN}[SUCCESS] Claim Success! Reward: +{pts:,} Points{Style.RESET_ALL}")
-                    else:
-                        time_str = self.get_wib_time()
-                        print(f"[{time_str}] {Fore.GREEN}[SUCCESS] Claim Success!{Style.RESET_ALL}")
+                    pts = data.get('points', 0)
+                    times_redeemed = data.get('timesRedeemed', 0)
+                    message = data.get('message', '')
+                    
+                    time_str = self.get_wib_time()
+                    print(f"[{time_str}] {Fore.GREEN}[SUCCESS] {task_name} - Earned +{pts} Points! (Total Redeems: {times_redeemed}){Style.RESET_ALL}")
                     return True
                 except:
                     time_str = self.get_wib_time()
-                    print(f"[{time_str}] {Fore.GREEN}[SUCCESS] Claim Success!{Style.RESET_ALL}")
+                    print(f"[{time_str}] {Fore.GREEN}[SUCCESS] {task_name} - Claim Success!{Style.RESET_ALL}")
                     return True
             elif response.status_code == 400:
                 try:
                     error_data = response.json()
                     message = error_data.get('message', 'Unknown error')
                     if 'already' in message.lower() or 'claimed' in message.lower():
-                        self.log(f"Task already claimed today", "WARNING")
+                        self.log(f"{task_name} - Already claimed", "WARNING")
                     else:
-                        self.log(f"Redeem failed: {message}", "ERROR")
+                        self.log(f"{task_name} - Redeem failed: {message}", "ERROR")
                 except:
-                    self.log(f"Redeem failed: {response.text}", "ERROR")
+                    self.log(f"{task_name} - Redeem failed: {response.text}", "ERROR")
                 return False
             else:
-                self.log(f"Redeem failed: {response.status_code}", "ERROR")
+                self.log(f"{task_name} - Redeem failed: {response.status_code}", "ERROR")
                 return False
                 
         except Exception as e:
-            self.log(f"Error redeeming task: {str(e)}", "ERROR")
+            self.log(f"Error redeeming task {task_name}: {str(e)}", "ERROR")
             return False
+    
+    def process_all_tasks(self, proxy=None):
+        """Process semua task yang ada di daftar"""
+        success_count = 0
+        
+        for task in self.tasks:
+            if self.redeem_task(task["id"], task["name"], proxy):
+                success_count += 1
+            time.sleep(1)  # Delay antar task
+        
+        return success_count
     
     def read_accounts(self, filename="accounts.txt"):
         try:
@@ -329,7 +344,10 @@ class CodexeroBot:
     
     def process_account(self, private_key, proxy_dict):
         if self.login(private_key, proxy_dict):
-            self.redeem_task("daily-visit-app", proxy_dict)
+            # Process semua task
+            task_success = self.process_all_tasks(proxy_dict)
+            self.log(f"Completed {task_success}/{len(self.tasks)} tasks", "INFO")
+            
             self.random_delay()
             self.check_points(proxy_dict)
             return True
@@ -365,6 +383,9 @@ class CodexeroBot:
             return
 
         self.log(f"Loaded {len(accounts)} accounts successfully", "INFO")
+        self.log(f"Tasks to claim: {len(self.tasks)}", "INFO")
+        for task in self.tasks:
+            self.log(f"  - {task['name']} ({task['id']})", "INFO")
         
         print(f"\n{Fore.CYAN}============================================================{Style.RESET_ALL}\n")
         
